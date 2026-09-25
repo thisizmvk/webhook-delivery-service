@@ -6,7 +6,7 @@ can see what happened.
 
 Kotlin, Spring Boot 4.1, Gradle.
 
-## Running it
+## Running locally
 
 You need JDK 17 or newer.
 
@@ -28,7 +28,8 @@ curl localhost:8080/deliveries/<id>
 ```
 
 That destination always returns 503, so you can watch the attempts pile up and the delivery
-eventually give up.
+eventually give up. The example relies on httpbin.org being reachable; any URL that returns
+5xx works the same way.
 
 ## API
 
@@ -107,6 +108,9 @@ to ignore duplicates.
 I also assumed that delivery order doesn't matter, callers are trusted (there's no auth), and
 idempotency keys are global since there's no concept of separate clients yet.
 
+The payload must be a JSON object. Arrays and bare values are rejected with a 400, which keeps
+the contract simple and leaves room to add fields to the envelope later.
+
 ## Tradeoffs
 
 Delivery happens in the background rather than during the POST request, so a slow or broken
@@ -115,7 +119,9 @@ happened.
 
 Storage is in memory, which means pending deliveries are lost on restart. It kept the scope
 manageable, and because everything goes through the `DeliveryRepository` interface, swapping in
-a database shouldn't touch the rest of the code.
+a database shouldn't touch the rest of the code. Nothing is ever evicted, and the dispatcher
+scans all deliveries on each run. That's fine at this scale, and a database with an index on
+due time would replace both.
 
 The dispatcher is a single scheduled loop. It's easy to follow, but it only works with one
 instance, and a slow destination holds up the others until its read timeout kicks in.
@@ -137,7 +143,8 @@ breaking, support for `Retry-After`, and a way to redeliver dead deliveries.
 
 1. Integration tests that run the whole flow against a fake destination (MockWebServer), covering
    success, retry then success, permanent failure, running out of attempts, timeouts,
-   idempotency, validation and 404s.
+   idempotency, validation and 404s. The MockWebServer and Awaitility dependencies are already
+   in the build for this.
 2. Metrics for succeeded, retried and dead deliveries plus attempt duration, and the delivery id
    in every log line so one search shows a delivery's whole history.
 3. Postgres storage using `SELECT ... FOR UPDATE SKIP LOCKED`, so multiple instances can share
